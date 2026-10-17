@@ -3,6 +3,8 @@
 [ext_resource type="Script" uid="uid://fkyo61t2l3xo" path="res://scripts/main.gd" id="1"]
 [ext_resource type="Texture2D" uid="uid://dayxplf5dcsb" path="res://assets/plate.png" id="2"]
 [ext_resource type="PackedScene" path="res://scenes/fork.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/teyze.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/hayir_challenge.tscn" id="5"]
 
 [node name="Main" type="Node2D" unique_id=2055616426]
 script = ExtResource("1")
@@ -25,3 +27,7 @@ position = Vector2(1221, 794)
 [node name="Fork" parent="." unique_id=2005830825 instance=ExtResource("3")]
 
 [node name="Crumbs" type="Node2D" parent="." unique_id=2120073136]
+
+[node name="Teyze" parent="." instance=ExtResource("4")]
+
+[node name="HayirChallenge" parent="." instance=ExtResource("5")]
