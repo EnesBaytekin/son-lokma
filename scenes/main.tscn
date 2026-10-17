@@ -5,6 +5,7 @@
 [ext_resource type="PackedScene" path="res://scenes/fork.tscn" id="3"]
 [ext_resource type="PackedScene" path="res://scenes/teyze.tscn" id="4"]
 [ext_resource type="PackedScene" path="res://scenes/hayir_challenge.tscn" id="5"]
+[ext_resource type="Script" path="res://scripts/bars.gd" id="6"]
 
 [node name="Main" type="Node2D" unique_id=2055616426]
 script = ExtResource("1")
@@ -31,3 +32,7 @@ position = Vector2(1221, 794)
 [node name="Teyze" parent="." instance=ExtResource("4")]
 
 [node name="HayirChallenge" parent="." instance=ExtResource("5")]
+
+[node name="Bars" type="CanvasLayer" parent="." unique_id=0]
+layer = 5
+script = ExtResource("6")

@@ -25,7 +25,22 @@ const REFILL_LINES: Array[String] = [
 	"Bir tane daha koyayım mı?",
 ]
 const TALK_TIME := 1.4    # speech bubble shows before the auntie leaves
-const GONE_TIME := 2.2    # how long the auntie stays off-screen
+const GONE_TIME := 4.0    # how long the auntie stays off-screen (typing window)
+
+const DROP_LINES: Array[String] = [
+	"Ah, çatal düştü! Dur, yenisini getiriyorum.",
+	"Olsun, hemen yeni çatal getiriyorum.",
+	"Çatal düşürdün! Neyse, yenisi geliyor.",
+	"Dikkat et! Hemen yenisini alıyorum.",
+]
+
+const FULLNESS_THRESHOLD := 65.0   # past this, eating gets harder
+const FULLNESS_PER_BITE := 7.0
+const MOOD_START := 70.0
+const MOOD_PER_BITE := 4.0
+const MOOD_PER_FOOD := 8.0
+const MOOD_PER_SPILL := 6.0
+const MOOD_PER_DROP := 15.0
 
 @onready var _slots: Array[Marker2D] = [
 	$Slots/SlotLeft,
@@ -36,6 +51,7 @@ const GONE_TIME := 2.2    # how long the auntie stays off-screen
 @onready var _crumbs: Node2D = $Crumbs
 @onready var _teyze: Teyze = $Teyze
 @onready var _challenge: HayirChallenge = $HayirChallenge
+@onready var _bars: Bars = $Bars
 
 var _foods: Array[Food] = [null, null, null]
 var _busy := false
@@ -43,7 +59,11 @@ var _pending_refills: Array[int] = []
 var _refill_refused := false
 var _refill_generation := 0
 var _won := false
+var _lost := false
+var _fullness := 0.0
+var _mood := MOOD_START
 var _win_label: Label
+var _lose_label: Label
 
 
 func _ready() -> void:
@@ -51,12 +71,14 @@ func _ready() -> void:
 	_fork.action_finished.connect(_on_fork_finished)
 	_fork.spilled.connect(_on_spilled)
 	_challenge.completed.connect(_on_challenge_completed)
-	_setup_win_label()
+	_setup_labels()
+	_bars.set_threshold(FULLNESS_THRESHOLD)
+	_update_bars()
 	for i in _slots.size():
 		_spawn_food(i)
 
 
-func _setup_win_label() -> void:
+func _setup_labels() -> void:
 	var layer := CanvasLayer.new()
 	layer.layer = 20
 	add_child(layer)
@@ -69,6 +91,16 @@ func _setup_win_label() -> void:
 	_win_label.size = Vector2(1920, 220)
 	_win_label.visible = false
 	layer.add_child(_win_label)
+
+	_lose_label = Label.new()
+	_lose_label.text = "Çok şiştin!\nArtık yiyemezsin..."
+	_lose_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_lose_label.add_theme_font_size_override("font_size", 72)
+	_lose_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.3))
+	_lose_label.position = Vector2(0, 420)
+	_lose_label.size = Vector2(1920, 220)
+	_lose_label.visible = false
+	layer.add_child(_lose_label)
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -96,25 +128,63 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _select_slot(slot_index: int) -> void:
-	if _busy:
+	if _busy or _lost:
 		return
 	var food: Food = _foods[slot_index]
 	if food == null:
 		return
 	_busy = true
+	_fork.difficulty = lerpf(1.0, 1.6, clampf((_fullness - FULLNESS_THRESHOLD) / 35.0, 0.0, 1.0))
 	_fork.start_action(food, _slots[slot_index].global_position)
 
 
-func _on_fork_finished() -> void:
+func _on_fork_finished(eaten: bool) -> void:
+	# A bite went in (fullness + mood up), or the fork dropped (mood down).
+	if eaten:
+		_fullness += FULLNESS_PER_BITE
+		_mood += MOOD_PER_BITE
+	else:
+		_mood -= MOOD_PER_DROP
+	_update_bars()
+	if _fullness >= 100.0:
+		_lose()
+		return
 	# The bite action is done. If a food emptied during it, hand off to the
-	# auntie's refill now (keeping the game busy); otherwise free the player.
-	if _pending_refills.is_empty():
+	# auntie's refill now (keeping the game busy); otherwise free the player —
+	# except on a drop, where the auntie fetches a fresh fork first.
+	if not _pending_refills.is_empty():
+		_run_refill_queue()
+	elif eaten:
 		_busy = false
 	else:
-		_run_refill_queue()
+		_drop_recovery()
+
+
+## After a drop: the auntie says a line, ducks off-screen to fetch a fresh fork,
+## and returns. The fork itself is already parked off-screen ready to come back.
+func _drop_recovery() -> void:
+	var gen := _refill_generation
+	_teyze.say(DROP_LINES[randi() % DROP_LINES.size()])
+	await get_tree().create_timer(TALK_TIME).timeout
+	if gen != _refill_generation:
+		return
+	_teyze.leave()
+	await _teyze.left
+	if gen != _refill_generation:
+		return
+	await get_tree().create_timer(0.5).timeout  # she's fetching a fresh fork
+	if gen != _refill_generation:
+		return
+	_teyze.come_back()
+	await _teyze.returned
+	if gen != _refill_generation:
+		return
+	_busy = false
 
 
 func _on_spilled(world_pos: Vector2, color: Color) -> void:
+	_mood -= MOOD_PER_SPILL
+	_update_bars()
 	var crumb: Crumb = CRUMB_SCENE.instantiate()
 	_crumbs.add_child(crumb)
 	crumb.global_position = world_pos
@@ -131,9 +201,14 @@ func _restart() -> void:
 	_pending_refills.clear()
 	_refill_refused = false
 	_won = false
+	_lost = false
+	_fullness = 0.0
+	_mood = MOOD_START
 	_win_label.visible = false
+	_lose_label.visible = false
 	_challenge.stop()
 	_teyze.reset()
+	_update_bars()
 	for i in _slots.size():
 		_spawn_food(i)
 
@@ -160,6 +235,8 @@ func _spawn_food(slot_index: int) -> void:
 
 
 func _on_food_emptied(_food: Food, slot_index: int) -> void:
+	_mood += MOOD_PER_FOOD
+	_update_bars()
 	if _foods[slot_index] != null:
 		_foods[slot_index].queue_free()
 		_foods[slot_index] = null
@@ -218,3 +295,17 @@ func _check_win() -> void:
 			return
 	_won = true
 	_win_label.visible = true
+
+
+func _update_bars() -> void:
+	_fullness = clampf(_fullness, 0.0, 100.0)
+	_mood = clampf(_mood, 0.0, 100.0)
+	_bars.set_fullness(_fullness)
+	_bars.set_mood(_mood)
+
+
+func _lose() -> void:
+	_lost = true
+	_busy = true
+	_refill_generation += 1  # cancel any in-flight refill
+	_lose_label.visible = true

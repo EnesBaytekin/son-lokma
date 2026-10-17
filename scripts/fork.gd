@@ -1,30 +1,36 @@
 class_name Fork
 extends Node2D
 ## Çatal (fork): flies to a selected food, picks up a bite, then carries it
-## off-screen. While carrying, the player spams SPACE to keep the fork from
-## trembling and spilling. Which action plays is chosen by the held food type.
+## off-screen. While carrying, the selected lokma challenge runs (driving the
+## fork's jitter and spilling). Which challenge plays is chosen by the food type
+## (weighted-random in `_make_challenge`).
 
-signal action_finished
+signal action_finished(eaten: bool)
 signal spilled(world_position: Vector2, color: Color)
 
-enum State { IDLE, GOING_TO_FOOD, CARRYING }
+enum State { IDLE, GOING_TO_FOOD, CARRYING, DROPPING }
 
 const EXIT_X := 2000.0
 const APPROACH_SPEED := 700.0
-const CARRY_SPEED := 180.0
+const CARRY_SPEED := 200.0
+const DROP_SPEED := 900.0
+const DROP_OFF_Y := 1250.0     # below the screen; the fork falls out of view
 
-const TREMBLE_RATE := 0.7          # tremble gained per second
-const SPACE_REDUCTION := 0.16      # tremble removed per space press
-const SPILL_THRESHOLD := 1.0       # spill only while above this
-const MAX_JITTER := 14.0           # max visual jitter in pixels
+const DROP_BASE_CHANCE := 0.22  # chance an interrupt appears at difficulty 1.0
+const DROP_MAX_CHANCE := 0.6    # chance at difficulty 1.6
+
+## Difficulty multiplier (0..~2), set by main from fullness before each action.
+var difficulty: float = 1.0
 
 var _state: State = State.IDLE
 var _held_name: String = ""
 var _held_color: Color = Color.WHITE
 var _target_food: Food = null
 var _target_pos: Vector2 = Vector2.ZERO
-var _tremble: float = 0.0
-var _spill_timer: float = 0.0
+var _challenge: Challenge = null
+var _interrupt: DropChallenge = null
+var _interrupt_x: float = -1.0     # x where the mid-carry interrupt fires
+var _drop_crumb_timer: float = 0.0
 
 @onready var _visual: Node2D = $Visual
 @onready var _bite: Sprite2D = $Visual/Bite
@@ -39,22 +45,36 @@ func _ready() -> void:
 func start_action(food: Food, food_pos: Vector2) -> void:
 	_target_food = food
 	_target_pos = food_pos
-	_tremble = 0.0
-	_spill_timer = 0.0
 	_state = State.GOING_TO_FOOD
 
 
-## Reset to idle: drop any held bite, hide it, and park off-screen.
+## Reset to idle: drop any held bite and challenge, park off-screen.
 func reset() -> void:
+	_clear_challenge()
+	_clear_interrupt()
+	_interrupt_x = -1.0
 	_state = State.IDLE
 	_target_food = null
 	_held_name = ""
 	_held_color = Color.WHITE
-	_tremble = 0.0
-	_spill_timer = 0.0
 	_bite.visible = false
 	_visual.position = Vector2.ZERO
 	position = Vector2(EXIT_X, 540.0)
+
+
+## Jitter the fork's visual by `magnitude` pixels (random offset).
+func set_jitter(magnitude: float) -> void:
+	_visual.position = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * magnitude
+
+
+## Sway the fork's visual horizontally by `offset_x` pixels (balance challenge).
+func set_sway(offset_x: float) -> void:
+	_visual.position = Vector2(offset_x, randf_range(-1.0, 1.0) * 5.0)
+
+
+## Emit a crumb at the current bite position.
+func spill() -> void:
+	spilled.emit(_bite.global_position, _held_color)
 
 
 func _process(delta: float) -> void:
@@ -66,18 +86,28 @@ func _process(delta: float) -> void:
 			if position.distance_to(_target_pos) < 6.0:
 				_pick_up()
 		State.CARRYING:
+			if _interrupt != null:
+				# Frozen during the quick-time: only the drop challenge ticks.
+				_interrupt.tick(delta)
+				return
+			if _interrupt_x >= 0.0 and position.x >= _interrupt_x:
+				_spawn_interrupt()
+				return
+			if _challenge != null and _challenge.is_intro():
+				return  # hold still while the player reads the instruction
 			position = position.move_toward(Vector2(EXIT_X, position.y), CARRY_SPEED * delta)
-			_tick_carry_action(delta)
+			if _challenge != null:
+				_challenge.tick(delta)
 			if position.x >= EXIT_X - 4.0:
-				_finish()
-
-
-func _unhandled_input(event: InputEvent) -> void:
-	if _state != State.CARRYING:
-		return
-	if event is InputEventKey and event.pressed and not event.echo:
-		if (event as InputEventKey).keycode == KEY_SPACE:
-			_tremble = maxf(0.0, _tremble - SPACE_REDUCTION)
+				_finish(true)
+		State.DROPPING:
+			position.y = move_toward(position.y, DROP_OFF_Y, DROP_SPEED * delta)
+			_drop_crumb_timer -= delta
+			if _drop_crumb_timer <= 0.0:
+				_drop_crumb_timer = 0.06
+				spill()
+			if position.y >= DROP_OFF_Y:
+				_land_drop()
 
 
 func _pick_up() -> void:
@@ -88,41 +118,122 @@ func _pick_up() -> void:
 	_target_food = null
 	_bite.visible = true
 	_bite.modulate = _held_color
+	_start_challenge()
+	_arm_interrupt()
 	_state = State.CARRYING
 
 
-## Currently every food uses the same "tremble" action. Later this will
-## dispatch on `_held_name` so each food can have its own action.
-func _tick_carry_action(delta: float) -> void:
-	_tick_tremble(delta)
-
-
-func _tick_tremble(delta: float) -> void:
-	_tremble += TREMBLE_RATE * delta
-	_update_jitter()
-	_update_spilling(delta)
-
-
-func _update_jitter() -> void:
-	var magnitude := clampf(_tremble, 0.0, 1.5) * MAX_JITTER
-	_visual.position = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)) * magnitude
-
-
-func _update_spilling(delta: float) -> void:
-	if _tremble <= SPILL_THRESHOLD:
+func _start_challenge() -> void:
+	_clear_challenge()
+	_challenge = _make_challenge()
+	if _challenge == null:
 		return
-	_spill_timer -= delta
-	if _spill_timer <= 0.0:
-		_spill_timer = _spill_interval()
-		spilled.emit(_bite.global_position, _held_color)
+	add_child(_challenge)
+	_challenge.start(self, difficulty)
 
 
-func _spill_interval() -> float:
-	return clampf(0.5 / (_tremble - SPILL_THRESHOLD), 0.05, 0.4)
+func _make_challenge() -> Challenge:
+	# Weighted-random: the food's "home" challenge is most likely (60%), and the
+	# other three carry challenges split the rest. Mash is the joker (no home).
+	var home_id: String = _home_challenge_id(_held_name)
+	if randf() < 0.6:
+		return _new_challenge(home_id)
+	var rest: Array[String] = []
+	for id in ["tremble", "balance", "hold", "mash"]:
+		if id != home_id:
+			rest.append(id)
+	return _new_challenge(rest[randi() % rest.size()])
 
 
-func _finish() -> void:
+func _home_challenge_id(food_name: String) -> String:
+	match food_name:
+		"kisir":
+			return "balance"
+		"kek":
+			return "hold"
+		_:
+			return "tremble"  # sarma and any unknown food
+
+
+func _new_challenge(id: String) -> Challenge:
+	match id:
+		"balance":
+			return BalanceChallenge.new()
+		"hold":
+			return HoldChallenge.new()
+		"mash":
+			return MashChallenge.new()
+		_:
+			return TrembleChallenge.new()
+
+
+func _clear_challenge() -> void:
+	if _challenge != null:
+		_challenge.stop()
+		_challenge.queue_free()
+		_challenge = null
+
+
+## Decide (difficulty-scaled) whether this carry gets a mid-way drop interrupt,
+## and if so where it fires.
+func _arm_interrupt() -> void:
+	_interrupt_x = -1.0
+	var t := clampf((difficulty - 1.0) / 0.6, 0.0, 1.0)
+	if randf() < lerpf(DROP_BASE_CHANCE, DROP_MAX_CHANCE, t):
+		_interrupt_x = randf_range(1050.0, 1700.0)
+
+
+## Freeze the carry and show the quick-time; the main challenge is hidden so its
+## input stays out of the way until the interrupt resolves.
+func _spawn_interrupt() -> void:
+	_interrupt_x = -1.0
+	if _challenge != null:
+		_challenge.visible = false
+	_interrupt = DropChallenge.new()
+	add_child(_interrupt)
+	_interrupt.finished.connect(_on_interrupt_finished)
+	_interrupt.start(self, difficulty)
+
+
+func _on_interrupt_finished(ok: bool) -> void:
+	if _interrupt != null:
+		_interrupt.stop()
+		_interrupt.queue_free()
+		_interrupt = null
+	if ok:
+		if _challenge != null:
+			_challenge.visible = true  # resume the carry challenge
+		return
+	_drop()
+
+
+func _clear_interrupt() -> void:
+	if _interrupt != null:
+		_interrupt.stop()
+		_interrupt.queue_free()
+		_interrupt = null
+
+
+## The bite is lost: start falling, dropping crumbs on the way down.
+func _drop() -> void:
+	_clear_challenge()
+	_drop_crumb_timer = 0.0
+	_state = State.DROPPING
+
+
+func _land_drop() -> void:
 	_bite.visible = false
 	_visual.position = Vector2.ZERO
 	_state = State.IDLE
-	action_finished.emit()
+	position = Vector2(EXIT_X, 540.0)  # a fresh fork is ready off-screen
+	action_finished.emit(false)
+
+
+func _finish(eaten: bool) -> void:
+	if eaten and _challenge != null:
+		_challenge.finish()
+	_clear_challenge()
+	_bite.visible = false
+	_visual.position = Vector2.ZERO
+	_state = State.IDLE
+	action_finished.emit(eaten)
