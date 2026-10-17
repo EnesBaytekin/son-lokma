@@ -6,6 +6,8 @@ The file layout is final, so dropping real PNGs with the same names
 is enough to swap them in:
 
     assets/plate.png
+    assets/fork.png
+    assets/crumb.png   (white circle, tinted at runtime via modulate)
     assets/foods/<food>/<food>_<i>.png   (i == 0 full ... last index near empty)
 """
 import os
@@ -51,6 +53,34 @@ def draw_plate():
     return img
 
 
+def draw_fork():
+    """Horizontal fork: tines on the left, handle on the right."""
+    w, h = 360, 90
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    silver = (185, 190, 200, 255)
+    dark = (140, 145, 155, 255)
+    # handle
+    d.rounded_rectangle((180, 40, 352, 50), radius=5,
+                        fill=silver, outline=dark, width=1)
+    # neck
+    d.polygon([(180, 40), (180, 50), (140, 30), (140, 60)], fill=silver)
+    # 4 tines
+    for i in range(4):
+        top = 26 + i * 11
+        d.rounded_rectangle((50, top, 140, top + 5), radius=2, fill=silver)
+    return img
+
+
+def draw_crumb():
+    """Small white circle, tinted at runtime to match the food it belongs to."""
+    size = 24
+    img = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.ellipse((3, 3, 21, 21), fill=(255, 255, 255, 255))
+    return img
+
+
 def draw_food(name, color, state_count, idx):
     """idx 0 = full, state_count-1 = last bite left."""
     size = 240
@@ -84,6 +114,8 @@ def draw_food(name, color, state_count, idx):
 def main():
     os.makedirs(ASSETS, exist_ok=True)
     draw_plate().save(os.path.join(ASSETS, "plate.png"))
+    draw_fork().save(os.path.join(ASSETS, "fork.png"))
+    draw_crumb().save(os.path.join(ASSETS, "crumb.png"))
 
     for name, color, count in FOODS:
         out_dir = os.path.join(ASSETS, "foods", name)

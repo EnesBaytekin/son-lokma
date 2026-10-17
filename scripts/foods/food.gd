@@ -3,7 +3,8 @@ extends Node2D
 ## Base class for every food placed on the plate.
 ##
 ## Each concrete food (sarma, kisir, kek) is its own scene/script and
-## only sets `food_name` + `state_count`. Textures follow the convention
+## only sets `food_name`, `state_count` and `color`. Textures follow the
+## convention
 ##     res://assets/foods/<food_name>/<food_name>_<i>.png
 ## where i == 0 is full and i == state_count - 1 is the last bite.
 ## Swap the placeholder PNGs for real art with the same names.
@@ -15,6 +16,8 @@ signal emptied(food: Food)
 var food_name: String = "food"
 ## Number of visual states, equal to the number of bites when full.
 var state_count: int = 3
+## Tint used for placeholder visuals (fork bite, spilled crumbs).
+var color: Color = Color.WHITE
 
 var bites_left: int = 0
 var _textures: Array[Texture2D] = []
