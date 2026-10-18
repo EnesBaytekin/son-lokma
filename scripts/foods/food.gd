@@ -18,6 +18,11 @@ var food_name: String = "food"
 var state_count: int = 3
 ## Tint used for placeholder visuals (fork bite, spilled crumbs).
 var color: Color = Color.WHITE
+## Optional per-food art: the bite shown on the fork and the pieces spilled on
+## the table. When null, the generic tinted crumb is used instead.
+var bite_texture: Texture2D = null
+var crumb_texture: Texture2D = null
+var bite_scale := Vector2.ONE
 
 var bites_left: int = 0
 var _textures: Array[Texture2D] = []

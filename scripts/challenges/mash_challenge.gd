@@ -3,7 +3,7 @@ extends Challenge
 ## "Ez" challenge: mash X enough times before the bite reaches the mouth. If you
 ## fall short, the fork spills a burst of crumbs at the end of the carry.
 
-const BASE_REQUIRED := 20
+const BASE_REQUIRED := 13
 
 var _required: int = 7
 var _presses: int = 0

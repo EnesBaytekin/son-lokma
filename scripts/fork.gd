@@ -6,13 +6,13 @@ extends Node2D
 ## (weighted-random in `_make_challenge`).
 
 signal action_finished(eaten: bool)
-signal spilled(world_position: Vector2, color: Color)
+signal spilled(world_position: Vector2, color: Color, crumb_texture: Texture2D)
 
 enum State { IDLE, GOING_TO_FOOD, STABBING, CARRYING, DROPPING, RETREATING }
 
 const EXIT_X := 2000.0
-const APPROACH_SPEED := 700.0
-const CARRY_SPEED := 200.0
+const APPROACH_SPEED := 1200.0
+const CARRY_SPEED := 300.0
 const DROP_SPEED := 900.0
 const DROP_OFF_Y := 1250.0     # below the screen; the fork falls out of view
 const RETREAT_SPEED := 700.0   # how fast the empty hand pulls back off-screen
@@ -27,6 +27,7 @@ const STAB_TIME := 0.18         # seconds the tilt takes
 
 const FORK_TEXTURE := preload("res://assets/fork_hand.png")
 const HAND_TEXTURE := preload("res://assets/hand.png")
+const CRUMB_TEXTURE := preload("res://assets/crumb.png")
 
 ## Difficulty multiplier (0..~2), set by main from fullness before each action.
 var difficulty: float = 1.0
@@ -34,6 +35,8 @@ var difficulty: float = 1.0
 var _state: State = State.IDLE
 var _held_name: String = ""
 var _held_color: Color = Color.WHITE
+var _held_bite_texture: Texture2D = null
+var _held_crumb_texture: Texture2D = null
 var _target_food: Food = null
 var _target_pos: Vector2 = Vector2.ZERO
 var _challenge: Challenge = null
@@ -90,7 +93,7 @@ func set_sway(offset_x: float) -> void:
 
 ## Emit a crumb at the current bite position.
 func spill() -> void:
-	spilled.emit(_bite.global_position, _held_color)
+	spilled.emit(_bite.global_position, _held_color, _held_crumb_texture)
 
 
 func _process(delta: float) -> void:
@@ -128,7 +131,7 @@ func _process(delta: float) -> void:
 			_drop_crumb_timer -= delta
 			if _drop_crumb_timer <= 0.0:
 				_drop_crumb_timer = 0.06
-				spilled.emit(_falling_fork.to_global(-_body.position), _held_color)
+				spilled.emit(_falling_fork.to_global(-_body.position), _held_color, _held_crumb_texture)
 			if _falling_fork.position.y >= DROP_OFF_Y:
 				_land_drop()
 		State.RETREATING:
@@ -142,13 +145,28 @@ func _process(delta: float) -> void:
 
 
 func _pick_up() -> void:
+	var bite_tex: Texture2D = null
+	var crumb_tex: Texture2D = null
+	var bite_scale := Vector2(2.5, 2.5)
 	if _target_food != null:
 		_target_food.take_bite()
 		_held_name = _target_food.food_name
 		_held_color = _target_food.color
+		bite_tex = _target_food.bite_texture
+		crumb_tex = _target_food.crumb_texture
+		bite_scale = _target_food.bite_scale
 	_target_food = null
+	_held_bite_texture = bite_tex
+	_held_crumb_texture = crumb_tex
 	_bite.visible = true
-	_bite.modulate = _held_color
+	if bite_tex != null:
+		_bite.texture = bite_tex
+		_bite.modulate = Color.WHITE
+		_bite.scale = bite_scale
+	else:
+		_bite.texture = CRUMB_TEXTURE
+		_bite.modulate = _held_color
+		_bite.scale = Vector2(2.5, 2.5)
 	_start_challenge()
 	_arm_interrupt()
 	_stab_t = 0.0

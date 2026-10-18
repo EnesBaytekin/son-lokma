@@ -14,7 +14,9 @@ const FOOD_SCENES: Array[PackedScene] = [
 ]
 
 const CRUMB_SCENE: PackedScene = preload("res://scenes/crumb.tscn")
-const TABLE_Y := 1020.0
+const TABLE_Y_MIN := 800.0   # back edge of the table surface crumbs scatter on
+const TABLE_Y_MAX := 980.0   # front edge of the table surface
+const CRUMB_X_MAX := 1700.0  # right edge of the table surface; no crumbs past here
 
 const REFILL_LINES: Array[String] = [
 	"Dur, hemen tazeleyeyim!",
@@ -204,13 +206,14 @@ func _drop_recovery() -> void:
 	_busy = false
 
 
-func _on_spilled(world_pos: Vector2, color: Color) -> void:
+func _on_spilled(world_pos: Vector2, color: Color, crumb_texture: Texture2D) -> void:
 	_teyze.sad()
 	_update_bars()
 	var crumb: Crumb = CRUMB_SCENE.instantiate()
 	_crumbs.add_child(crumb)
+	world_pos.x = minf(world_pos.x, CRUMB_X_MAX)
 	crumb.global_position = world_pos
-	crumb.setup(color, TABLE_Y)
+	crumb.setup(color, crumb_texture, TABLE_Y_MIN, TABLE_Y_MAX, CRUMB_X_MAX)
 
 
 ## Restart: reset the fork, foods and crumbs, and cancel any refill in progress.

@@ -14,7 +14,7 @@ const BAR_YELLOW := Color(1.0, 0.82, 0.15)
 const BAR_RED := Color(1.0, 0.3, 0.25)
 const HINT_COLOR := Color(1.0, 0.96, 0.85)
 
-const INTRO_TIME := 1.2   # seconds the instruction shows before the action starts
+const INTRO_TIME := 0.8   # seconds the instruction shows before the action starts
 
 var fork: Fork
 var difficulty: float = 1.0
