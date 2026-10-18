@@ -8,16 +8,25 @@ extends Node2D
 signal action_finished(eaten: bool)
 signal spilled(world_position: Vector2, color: Color)
 
-enum State { IDLE, GOING_TO_FOOD, CARRYING, DROPPING }
+enum State { IDLE, GOING_TO_FOOD, STABBING, CARRYING, DROPPING, RETREATING }
 
 const EXIT_X := 2000.0
 const APPROACH_SPEED := 700.0
 const CARRY_SPEED := 200.0
 const DROP_SPEED := 900.0
 const DROP_OFF_Y := 1250.0     # below the screen; the fork falls out of view
+const RETREAT_SPEED := 700.0   # how fast the empty hand pulls back off-screen
 
 const DROP_BASE_CHANCE := 0.22  # chance an interrupt appears at difficulty 1.0
 const DROP_MAX_CHANCE := 0.6    # chance at difficulty 1.6
+
+## The fork approaches straight, then tilts this much while stabbing the bite and
+## carries it back at the same tilted angle (scooping from below).
+const STAB_ANGLE := 0.2         # radians the visual tilts at the moment of pickup
+const STAB_TIME := 0.18         # seconds the tilt takes
+
+const FORK_TEXTURE := preload("res://assets/fork_hand.png")
+const HAND_TEXTURE := preload("res://assets/hand.png")
 
 ## Difficulty multiplier (0..~2), set by main from fullness before each action.
 var difficulty: float = 1.0
@@ -31,9 +40,12 @@ var _challenge: Challenge = null
 var _interrupt: DropChallenge = null
 var _interrupt_x: float = -1.0     # x where the mid-carry interrupt fires
 var _drop_crumb_timer: float = 0.0
+var _stab_t: float = 0.0
 
 @onready var _visual: Node2D = $Visual
+@onready var _body: Sprite2D = $Visual/Body
 @onready var _bite: Sprite2D = $Visual/Bite
+@onready var _falling_fork: Sprite2D = $Visual/FallingFork
 
 
 func _ready() -> void:
@@ -59,6 +71,10 @@ func reset() -> void:
 	_held_color = Color.WHITE
 	_bite.visible = false
 	_visual.position = Vector2.ZERO
+	_visual.rotation = 0.0
+	_body.texture = FORK_TEXTURE
+	_falling_fork.visible = false
+	_falling_fork.position = Vector2(611, -260)
 	position = Vector2(EXIT_X, 540.0)
 
 
@@ -85,6 +101,12 @@ func _process(delta: float) -> void:
 			position = position.move_toward(_target_pos, APPROACH_SPEED * delta)
 			if position.distance_to(_target_pos) < 6.0:
 				_pick_up()
+		State.STABBING:
+			_stab_t += delta
+			_visual.rotation = lerpf(0.0, STAB_ANGLE, clampf(_stab_t / STAB_TIME, 0.0, 1.0))
+			if _stab_t >= STAB_TIME:
+				_visual.rotation = STAB_ANGLE
+				_state = State.CARRYING
 		State.CARRYING:
 			if _interrupt != null:
 				# Frozen during the quick-time: only the drop challenge ticks.
@@ -101,13 +123,22 @@ func _process(delta: float) -> void:
 			if position.x >= EXIT_X - 4.0:
 				_finish(true)
 		State.DROPPING:
-			position.y = move_toward(position.y, DROP_OFF_Y, DROP_SPEED * delta)
+			# The hand stays put; the detached fork falls while spilling crumbs.
+			_falling_fork.position.y = move_toward(_falling_fork.position.y, DROP_OFF_Y, DROP_SPEED * delta)
 			_drop_crumb_timer -= delta
 			if _drop_crumb_timer <= 0.0:
 				_drop_crumb_timer = 0.06
-				spill()
-			if position.y >= DROP_OFF_Y:
+				spilled.emit(_falling_fork.to_global(-_body.position), _held_color)
+			if _falling_fork.position.y >= DROP_OFF_Y:
 				_land_drop()
+		State.RETREATING:
+			position = position.move_toward(Vector2(EXIT_X, 540.0), RETREAT_SPEED * delta)
+			if position.distance_to(Vector2(EXIT_X, 540.0)) < 4.0:
+				position = Vector2(EXIT_X, 540.0)
+				_visual.position = Vector2.ZERO
+				_visual.rotation = 0.0
+				_body.texture = FORK_TEXTURE
+				_state = State.IDLE
 
 
 func _pick_up() -> void:
@@ -120,7 +151,8 @@ func _pick_up() -> void:
 	_bite.modulate = _held_color
 	_start_challenge()
 	_arm_interrupt()
-	_state = State.CARRYING
+	_stab_t = 0.0
+	_state = State.STABBING
 
 
 func _start_challenge() -> void:
@@ -218,15 +250,26 @@ func _clear_interrupt() -> void:
 func _drop() -> void:
 	_clear_challenge()
 	_drop_crumb_timer = 0.0
+	_bite.visible = false
+	_body.texture = HAND_TEXTURE  # the fork is gone; the hand is empty
+	_visual.position = Vector2.ZERO  # settle the wobble; the hand stays put
+	_falling_fork.position = Vector2(611, -260)
+	_falling_fork.visible = true
 	_state = State.DROPPING
 
 
 func _land_drop() -> void:
-	_bite.visible = false
-	_visual.position = Vector2.ZERO
-	_state = State.IDLE
-	position = Vector2(EXIT_X, 540.0)  # a fresh fork is ready off-screen
+	_falling_fork.visible = false
+	_falling_fork.position = Vector2(611, -260)
+	_state = State.IDLE  # empty hand stays put; retreat_hand() pulls it back
 	action_finished.emit(false)
+
+
+## The empty hand pulls back off-screen (called during the teyze's drop recovery).
+func retreat_hand() -> void:
+	if _state == State.RETREATING:
+		return
+	_state = State.RETREATING
 
 
 func _finish(eaten: bool) -> void:
@@ -235,5 +278,6 @@ func _finish(eaten: bool) -> void:
 	_clear_challenge()
 	_bite.visible = false
 	_visual.position = Vector2.ZERO
+	_visual.rotation = 0.0
 	_state = State.IDLE
 	action_finished.emit(eaten)

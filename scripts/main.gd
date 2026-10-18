@@ -26,6 +26,7 @@ const REFILL_LINES: Array[String] = [
 ]
 const TALK_TIME := 1.4    # speech bubble shows before the auntie leaves
 const GONE_TIME := 4.0    # how long the auntie stays off-screen (typing window)
+const AUTO_SELECT_DELAY := 4.0  # idle seconds before a random filled slot is picked
 
 const DROP_LINES: Array[String] = [
 	"Ah, çatal düştü! Dur, yenisini getiriyorum.",
@@ -62,6 +63,7 @@ var _won := false
 var _lost := false
 var _fullness := 0.0
 var _mood := MOOD_START
+var _idle_timer := AUTO_SELECT_DELAY
 var _win_label: Label
 var _lose_label: Label
 
@@ -138,6 +140,28 @@ func _select_slot(slot_index: int) -> void:
 	_fork.start_action(food, _slots[slot_index].global_position)
 
 
+## While the game waits for a choice, count down and auto-pick a filled slot.
+func _process(delta: float) -> void:
+	if _busy or _won or _lost:
+		_idle_timer = AUTO_SELECT_DELAY
+		return
+	_idle_timer -= delta
+	if _idle_timer <= 0.0:
+		_idle_timer = AUTO_SELECT_DELAY
+		_auto_select_slot()
+
+
+## Pick a random still-filled slot (used when the player doesn't choose).
+func _auto_select_slot() -> void:
+	var filled: Array[int] = []
+	for i in _foods.size():
+		if _foods[i] != null:
+			filled.append(i)
+	if filled.is_empty():
+		return
+	_select_slot(filled[randi() % filled.size()])
+
+
 func _on_fork_finished(eaten: bool) -> void:
 	# A bite went in (fullness + mood up), or the fork dropped (mood down).
 	if eaten:
@@ -149,6 +173,10 @@ func _on_fork_finished(eaten: bool) -> void:
 	if _fullness >= 100.0:
 		_lose()
 		return
+	# A drop leaves the hand empty; pull it back to fetch a fresh fork no matter
+	# what happens next (a food refill or the fork-only recovery).
+	if not eaten:
+		_fork.retreat_hand()
 	# The bite action is done. If a food emptied during it, hand off to the
 	# auntie's refill now (keeping the game busy); otherwise free the player —
 	# except on a drop, where the auntie fetches a fresh fork first.

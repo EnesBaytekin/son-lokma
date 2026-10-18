@@ -1,18 +1,24 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene format=3 uid="uid://cmmo76vook86s"]
 
-[ext_resource type="Script" path="res://scripts/fork.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/fork.png" id="2"]
-[ext_resource type="Texture2D" path="res://assets/crumb.png" id="3"]
+[ext_resource type="Script" uid="uid://car1vaqf1ex4p" path="res://scripts/fork.gd" id="1"]
+[ext_resource type="Texture2D" uid="uid://dnxutg7s1uf80" path="res://assets/fork_hand.png" id="2"]
+[ext_resource type="Texture2D" uid="uid://bi80xkyersf5d" path="res://assets/crumb.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/just_fork.png" id="4"]
 
-[node name="Fork" type="Node2D"]
+[node name="Fork" type="Node2D" unique_id=303474907]
 script = ExtResource("1")
 
-[node name="Visual" type="Node2D" parent="."]
+[node name="Visual" type="Node2D" parent="." unique_id=1070836243]
 
-[node name="Body" type="Sprite2D" parent="Visual"]
+[node name="Body" type="Sprite2D" parent="Visual" unique_id=1627786131]
+position = Vector2(611, -260)
 texture = ExtResource("2")
 
-[node name="Bite" type="Sprite2D" parent="Visual"]
-position = Vector2(-80, 0)
+[node name="Bite" type="Sprite2D" parent="Visual" unique_id=1094087734]
 scale = Vector2(2.5, 2.5)
 texture = ExtResource("3")
+
+[node name="FallingFork" type="Sprite2D" parent="Visual"]
+visible = false
+position = Vector2(611, -260)
+texture = ExtResource("4")
