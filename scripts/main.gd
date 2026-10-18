@@ -37,11 +37,6 @@ const DROP_LINES: Array[String] = [
 
 const FULLNESS_THRESHOLD := 65.0   # past this, eating gets harder
 const FULLNESS_PER_BITE := 7.0
-const MOOD_START := 70.0
-const MOOD_PER_BITE := 4.0
-const MOOD_PER_FOOD := 8.0
-const MOOD_PER_SPILL := 6.0
-const MOOD_PER_DROP := 15.0
 
 @onready var _slots: Array[Marker2D] = [
 	$Slots/SlotLeft,
@@ -62,7 +57,6 @@ var _refill_generation := 0
 var _won := false
 var _lost := false
 var _fullness := 0.0
-var _mood := MOOD_START
 var _idle_timer := AUTO_SELECT_DELAY
 var _win_label: Label
 var _lose_label: Label
@@ -163,12 +157,12 @@ func _auto_select_slot() -> void:
 
 
 func _on_fork_finished(eaten: bool) -> void:
-	# A bite went in (fullness + mood up), or the fork dropped (mood down).
+	# A bite went in (fullness up, teyze happy), or the fork dropped (teyze sad).
 	if eaten:
 		_fullness += FULLNESS_PER_BITE
-		_mood += MOOD_PER_BITE
+		_teyze.happy()
 	else:
-		_mood -= MOOD_PER_DROP
+		_teyze.sad()
 	_update_bars()
 	if _fullness >= 100.0:
 		_lose()
@@ -211,7 +205,7 @@ func _drop_recovery() -> void:
 
 
 func _on_spilled(world_pos: Vector2, color: Color) -> void:
-	_mood -= MOOD_PER_SPILL
+	_teyze.sad()
 	_update_bars()
 	var crumb: Crumb = CRUMB_SCENE.instantiate()
 	_crumbs.add_child(crumb)
@@ -231,7 +225,6 @@ func _restart() -> void:
 	_won = false
 	_lost = false
 	_fullness = 0.0
-	_mood = MOOD_START
 	_win_label.visible = false
 	_lose_label.visible = false
 	_challenge.stop()
@@ -263,7 +256,7 @@ func _spawn_food(slot_index: int) -> void:
 
 
 func _on_food_emptied(_food: Food, slot_index: int) -> void:
-	_mood += MOOD_PER_FOOD
+	_teyze.happy()
 	_update_bars()
 	if _foods[slot_index] != null:
 		_foods[slot_index].queue_free()
@@ -327,9 +320,7 @@ func _check_win() -> void:
 
 func _update_bars() -> void:
 	_fullness = clampf(_fullness, 0.0, 100.0)
-	_mood = clampf(_mood, 0.0, 100.0)
 	_bars.set_fullness(_fullness)
-	_bars.set_mood(_mood)
 
 
 func _lose() -> void:
